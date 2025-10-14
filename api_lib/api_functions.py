@@ -177,9 +177,84 @@ class YandexDirect:
         self.url_reports = 'https://api.direct.yandex.com/json/v5/reports'
         self.url_campaigns = 'https://api.direct.yandex.com/json/v5/campaigns'
 
+    def get_single_account_balance(self, token, login):
+        """
+        Returns balance for a single account using individual token
+        
+        Parameters:
+            token (str): Individual account token
+            login (str): Account login
+            
+        Returns:
+            dict: {'login': str, 'amount': float, 'currency': str} or None if error
+        """
+        body = {
+            "method": "AccountManagement",
+            "token": token,
+            "locale": "ru",
+            "param": {
+                "Action": "Get",
+                "SelectionCriteria": {
+                    "Logins": [login]
+                }
+            }
+        }
+        
+        try:
+            response = requests.post(self.url_accounts, json=body)
+            response.encoding = 'utf-8'
+            
+            if response.status_code == 200:
+                data = response.json()
+                account = data['data']['Accounts'][0]
+                return {
+                    'login': account['Login'],
+                    'amount': round(float(account['Amount']), 2),
+                    'currency': account['Currency']
+                }
+            elif response.status_code == 400:
+                print(f"Параметры запроса для {login} указаны неверно")
+                print(response.text)
+                return None
+            else:
+                print(f"Ошибка для {login}: статус {response.status_code}")
+                print(response.text)
+                return None
+                
+        except ConnectionError:
+            print(f"Ошибка соединения при запросе баланса для {login}")
+            return None
+        except Exception as e:
+            print(f"Непредвиденная ошибка для {login}: {e}")
+            return None
+        
+    def get_multiple_accounts_balances(self, accounts_dict):
+        """
+        Returns balances for multiple accounts with individual tokens
+        
+        Parameters:
+            accounts_dict (dict): Dictionary with {login: token} pairs
+            
+        Returns:
+            list: List of dicts with balance info
+        """
+        balances = []
+        
+        for login, token in accounts_dict.items():
+            print(f"Запрашиваю баланс для {login}...")
+            balance = self.get_single_account_balance(token, login)
+            
+            if balance:
+                balances.append(balance)
+            
+            # Небольшая пауза между запросами
+            sleep(0.5)
+        
+        return balances
+
     def accounts_budget(self, logins):
         """
-        Returns accounts budget
+        Returns accounts budget (original agency method)
         """
         token = self.token
         AgencyClientsBody = {
