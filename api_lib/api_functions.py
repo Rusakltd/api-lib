@@ -176,6 +176,7 @@ class YandexDirect:
         self.url_accounts = 'https://api.direct.yandex.ru/live/v4/json/'
         self.url_reports = 'https://api.direct.yandex.com/json/v5/reports'
         self.url_campaigns = 'https://api.direct.yandex.com/json/v5/campaigns'
+        self.url_clients = 'https://api.direct.yandex.com/json/v5/clients'
 
     def get_single_account_balance(self, token, login):
         """
@@ -195,7 +196,6 @@ class YandexDirect:
             "param": {
                 "Action": "Get",
                 "SelectionCriteria": {
-                    "Logins": [login]
                 }
             }
         }
