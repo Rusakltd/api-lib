@@ -204,14 +204,35 @@ class YandexDirect:
             response = requests.post(self.url_accounts, json=body)
             response.encoding = 'utf-8'
             
+            # Отладочный вывод
+            print(f"Статус ответа для {login}: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
-                account = data['data']['Accounts'][0]
-                return {
-                    'login': account['Login'],
-                    'amount': round(float(account['Amount']), 2),
-                    'currency': account['Currency']
-                }
+                
+                # Отладка: смотрим структуру ответа
+                print(f"Структура ответа для {login}:")
+                print(json.dumps(data, indent=2, ensure_ascii=False))
+                
+                # Проверяем разные варианты структуры ответа
+                if 'data' in data and 'Accounts' in data['data']:
+                    account = data['data']['Accounts'][0]
+                    return {
+                        'login': account['Login'],
+                        'amount': round(float(account['Amount']), 2),
+                        'currency': account.get('Currency', 'RUB')
+                    }
+                elif 'Accounts' in data:
+                    account = data['Accounts'][0]
+                    return {
+                        'login': account['Login'],
+                        'amount': round(float(account['Amount']), 2),
+                        'currency': account.get('Currency', 'RUB')
+                    }
+                else:
+                    print(f"Неожиданная структура ответа для {login}")
+                    print(f"Ключи в ответе: {data.keys()}")
+                    return None
             elif response.status_code == 400:
                 print(f"Параметры запроса для {login} указаны неверно")
                 print(response.text)
@@ -226,6 +247,11 @@ class YandexDirect:
             return None
         except Exception as e:
             print(f"Непредвиденная ошибка для {login}: {e}")
+            print(f"Полный ответ сервера:")
+            try:
+                print(response.text)
+            except:
+                pass
             return None
         
     def get_multiple_accounts_balances(self, accounts_dict):
@@ -251,7 +277,7 @@ class YandexDirect:
             sleep(0.5)
         
         return balances
-
+    
     def accounts_budget(self, logins):
         """
         Returns accounts budget (original agency method)
