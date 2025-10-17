@@ -305,6 +305,149 @@ class YandexDirect:
             print("Request failed with status code:", response.status_code)
             print(response.text)
 
+    def get_single_account_spent(self, token, login, date_range="LAST_3_DAYS"):
+        """
+        Returns spent amount for a single account using individual token
+        
+        Parameters:
+            token (str): Individual account token
+            login (str): Account login
+            date_range (str): Date range for the report (default: "LAST_3_DAYS")
+            
+        Returns:
+            dict: {'login': str, 'cost': float} or None if error
+        """
+        main_url = self.url_reports
+        headers = {
+            "Authorization": "Bearer " + token,
+            "Accept-Language": "ru",
+            'skipReportHeader': "true",
+            'skipColumnHeader': "true",
+            'skipReportSummary': "true",
+            'returnMoneyInMicros': "false",
+            'Client-Login': login
+        }
+        body = {
+            "params": {
+                "SelectionCriteria": {},
+                "FieldNames": ["Cost"],
+                "ReportName": "ACCOUNT_PERFORMANCE",
+                "ReportType": "ACCOUNT_PERFORMANCE_REPORT",
+                "DateRangeType": date_range,
+                "Format": "TSV",
+                "IncludeVAT": "YES",
+                "IncludeDiscount": "NO"
+            }
+        }
+        
+        requestBody = json.dumps(body, indent=4)
+        
+        # Цикл для выполнения запросов с обработкой статусов 201/202
+        while True:
+            try:
+                req = requests.post(main_url, requestBody, headers=headers)
+                req.encoding = 'utf-8'
+                
+                if req.status_code == 400:
+                    print(f"Параметры запроса для {login} указаны неверно или достигнут лимит отчетов в очереди")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return None
+                    
+                elif req.status_code == 200:
+                    print(f"Отчет для аккаунта {login} создан успешно")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    
+                    if req.text != "":
+                        tempresult = req.text.split('\t')
+                        return {
+                            'login': login,
+                            'cost': float(tempresult[0])
+                        }
+                    else:
+                        return {
+                            'login': login,
+                            'cost': 0.0
+                        }
+                        
+                elif req.status_code == 201:
+                    print(f"Отчет для аккаунта {login} успешно поставлен в очередь в режиме offline")
+                    retryIn = int(req.headers.get("retryIn", 60))
+                    print(f"Повторная отправка запроса через {retryIn} секунд")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    sleep(retryIn)
+                    
+                elif req.status_code == 202:
+                    print(f"Отчет для аккаунта {login} формируется в режиме офлайн")
+                    retryIn = int(req.headers.get("retryIn", 60))
+                    print(f"Повторная отправка запроса через {retryIn} секунд")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    sleep(retryIn)
+                    
+                elif req.status_code == 500:
+                    print(f"При формировании отчета для {login} произошла ошибка. Попробуйте повторить запрос позднее.")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return None
+                    
+                elif req.status_code == 502:
+                    print(f"Время формирования отчета для {login} превысило серверное ограничение.")
+                    print("Попробуйте изменить параметры запроса - уменьшить период и количество запрашиваемых данных.")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return None
+                    
+                else:
+                    print(f"Произошла непредвиденная ошибка для {login}")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return None
+
+            except ConnectionError:
+                print(f"Произошла ошибка соединения с сервером API для {login}")
+                return None
+                
+            except Exception as e:
+                print(f"Произошла непредвиденная ошибка для {login}: {e}")
+                return None
+
+
+    def get_multiple_accounts_spent(self, accounts_dict, date_range="LAST_3_DAYS"):
+        """
+        Returns spent amounts for multiple accounts with individual tokens
+        
+        Parameters:
+            accounts_dict (dict): Dictionary with {login: token} pairs
+            date_range (str): Date range for the report (default: "LAST_3_DAYS")
+            
+        Returns:
+            list: List of dicts with spent info or CSV string
+        """
+        results = []
+        
+        for login, token in accounts_dict.items():
+            print(f"Запрашиваю траты для {login}...")
+            spent = self.get_single_account_spent(token, login, date_range)
+            
+            if spent:
+                results.append(spent)
+            
+            # Небольшая пауза между запросами
+            sleep(0.5)
+        
+        return results
+        
+        # Если нужен CSV формат:
+        # resultcsv = "Login,Costs\n"
+        # for result in results:
+        #     resultcsv += f"{result['login']},{result['cost']}\n"
+        # return resultcsv
+
+
+
     def get_account_spent(self, logins, date_range="LAST_3_DAYS"):
         """
         Returns accounts spent
