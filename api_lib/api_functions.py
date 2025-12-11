@@ -1,6 +1,9 @@
 import requests
 import json
 import os
+import pandas as pd
+import io
+
 from time import sleep
 from datetime import datetime, timedelta
 import pytz
@@ -152,6 +155,30 @@ class YandexMessengerBot:
             data = {"login": self.chat_id,
                     "text": text}
         response = requests.post(url, headers=self.headers, json=data)
+        return response.json()
+    
+    def send_file(self, file_data, filename="data.csv"):
+        """
+        Sends a file to the Yandex Messenger chat.
+        file_data: байтовый объект (или открытый файл)
+        filename: имя файла, которое увидит пользователь
+        """
+        headers = {"Authorization": f"OAuth {self.token}"}
+        url = self.base_url + "sendFile/"
+
+        data = {}
+        if '/' in str(self.chat_id):
+            data["chat_id"] = self.chat_id,
+        else:
+            data["login"] = self.chat_id,
+        
+        # Подготовка файла для отправки
+        # Формат: 'ключ_формы': ('имя_файла', байтовый_объект, 'mime/type')
+        files = {
+            "document": ("file", file_data, "text/csv")
+        }
+
+        response = requests.post(url, headers=headers, data=data, files=files)
         return response.json()
     
     def getupdate(self, offset=0):
