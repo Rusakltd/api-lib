@@ -168,14 +168,14 @@ class YandexMessengerBot:
 
         data = {}
         if '/' in str(self.chat_id):
-            data["chat_id"] = self.chat_id,
+            data["chat_id"] = self.chat_id
         else:
-            data["login"] = self.chat_id,
+            data["login"] = self.chat_id
         
         # Подготовка файла для отправки
         # Формат: 'ключ_формы': ('имя_файла', байтовый_объект, 'mime/type')
         files = {
-            "document": ("file", file_data, "text/csv")
+            "document": (filename, file_data, "text/csv")
         }
 
         response = requests.post(url, headers=headers, data=data, files=files)
