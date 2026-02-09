@@ -594,9 +594,13 @@ class YandexDirect:
                 "Values": [str(x) for x in location_ids]
             })
 
+        selection_criteria = {}
+        if filters:
+            selection_criteria["Filter"] = filters
+
         body = {
             "params": {
-                "SelectionCriteria": {},
+                "SelectionCriteria": selection_criteria,
                 "FieldNames": ["Cost"],
                 "ReportName": "FILTERED_SPEND",
                 "ReportType": "CUSTOM_REPORT",
@@ -606,8 +610,6 @@ class YandexDirect:
                 "IncludeDiscount": "NO"
             }
         }
-        if filters:
-            body["params"]["Filter"] = filters
 
         tsv_text = self._request_report_tsv(token, login, body)
         return {
