@@ -473,7 +473,7 @@ class YandexDirect:
         #     resultcsv += f"{result['login']},{result['cost']}\n"
         # return resultcsv
 
-    def _request_report_tsv(self, token, login, body):
+    def _request_report_tsv(self, token, login, body, max_network_retries=3):
         """
         Executes a Yandex Direct report request and returns TSV text (or empty string).
         """
@@ -490,6 +490,7 @@ class YandexDirect:
 
         requestBody = json.dumps(body, indent=4)
 
+        network_attempt = 0
         while True:
             try:
                 req = requests.post(main_url, requestBody, headers=headers)
@@ -543,12 +544,18 @@ class YandexDirect:
                     return ""
 
             except ConnectionError:
+                network_attempt += 1
                 print(f"Произошла ошибка соединения с сервером API для {login}")
-                return ""
+                if network_attempt >= max_network_retries:
+                    return ""
+                sleep(2)
 
             except Exception as e:
+                network_attempt += 1
                 print(f"Произошла непредвиденная ошибка для {login}: {e}")
-                return ""
+                if network_attempt >= max_network_retries:
+                    return ""
+                sleep(2)
 
     def _sum_cost_from_tsv(self, tsv_text):
         """
@@ -574,7 +581,7 @@ class YandexDirect:
         return total
 
     def get_single_account_spent_filtered(self, token, login, date_range="LAST_3_DAYS",
-                                          ad_network_type=None, location_ids=None):
+                                          ad_network_type=None, location_ids=None, report_suffix=None):
         """
         Returns spent amount for a single account with optional filters:
         - ad_network_type: "SEARCH" or "AD_NETWORK"
@@ -601,11 +608,15 @@ class YandexDirect:
         if filters:
             selection_criteria["Filter"] = filters
 
+        report_name = "FILTERED_SPEND"
+        if report_suffix:
+            report_name = f"{report_name}_{report_suffix}"
+
         body = {
             "params": {
                 "SelectionCriteria": selection_criteria,
                 "FieldNames": ["Cost"],
-                "ReportName": "FILTERED_SPEND",
+                "ReportName": report_name,
                 "ReportType": "CUSTOM_REPORT",
                 "DateRangeType": date_range,
                 "Format": "TSV",
@@ -676,7 +687,8 @@ class YandexDirect:
                 token=token,
                 login=login,
                 date_range=date_range,
-                ad_network_type="SEARCH"
+                ad_network_type="SEARCH",
+                report_suffix=f"{login}_SEARCH"
             )
             search_cost = search_spend['cost'] if search_spend else 0.0
 
@@ -685,7 +697,8 @@ class YandexDirect:
                 login=login,
                 date_range=date_range,
                 ad_network_type="AD_NETWORK",
-                location_ids=outside_rf_location_ids
+                location_ids=outside_rf_location_ids,
+                report_suffix=f"{login}_ADNET_OUT"
             )
             rsy_outside_cost = rsy_outside_spend['cost'] if rsy_outside_spend else 0.0
 
