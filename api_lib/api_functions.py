@@ -473,6 +473,235 @@ class YandexDirect:
         #     resultcsv += f"{result['login']},{result['cost']}\n"
         # return resultcsv
 
+    def _request_report_tsv(self, token, login, body):
+        """
+        Executes a Yandex Direct report request and returns TSV text (or empty string).
+        """
+        main_url = self.url_reports
+        headers = {
+            "Authorization": "Bearer " + token,
+            "Accept-Language": "ru",
+            'skipReportHeader': "true",
+            'skipColumnHeader': "true",
+            'skipReportSummary': "true",
+            'returnMoneyInMicros': "false",
+            'Client-Login': login
+        }
+
+        requestBody = json.dumps(body, indent=4)
+
+        while True:
+            try:
+                req = requests.post(main_url, requestBody, headers=headers)
+                req.encoding = 'utf-8'
+
+                if req.status_code == 400:
+                    print(f"Параметры запроса для {login} указаны неверно или достигнут лимит отчетов в очереди")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return ""
+
+                elif req.status_code == 200:
+                    print(f"Отчет для аккаунта {login} создан успешно")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    return req.text or ""
+
+                elif req.status_code == 201:
+                    print(f"Отчет для аккаунта {login} успешно поставлен в очередь в режиме offline")
+                    retryIn = int(req.headers.get("retryIn", 60))
+                    print(f"Повторная отправка запроса через {retryIn} секунд")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    sleep(retryIn)
+
+                elif req.status_code == 202:
+                    print(f"Отчет для аккаунта {login} формируется в режиме офлайн")
+                    retryIn = int(req.headers.get("retryIn", 60))
+                    print(f"Повторная отправка запроса через {retryIn} секунд")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    sleep(retryIn)
+
+                elif req.status_code == 500:
+                    print(f"При формировании отчета для {login} произошла ошибка. Попробуйте повторить запрос позднее.")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return ""
+
+                elif req.status_code == 502:
+                    print(f"Время формирования отчета для {login} превысило серверное ограничение.")
+                    print("Попробуйте изменить параметры запроса - уменьшить период и количество запрашиваемых данных.")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return ""
+
+                else:
+                    print(f"Произошла непредвиденная ошибка для {login}")
+                    print(f"RequestId: {req.headers.get('RequestId', False)}")
+                    print(f"JSON-код запроса: {body}")
+                    print(f"JSON-код ответа сервера: \n{req.json()}")
+                    return ""
+
+            except ConnectionError:
+                print(f"Произошла ошибка соединения с сервером API для {login}")
+                return ""
+
+            except Exception as e:
+                print(f"Произошла непредвиденная ошибка для {login}: {e}")
+                return ""
+
+    def _sum_cost_from_tsv(self, tsv_text):
+        """
+        Sums the Cost column from a TSV report body.
+        """
+        if not tsv_text:
+            return 0.0
+
+        total = 0.0
+        for line in tsv_text.strip().splitlines():
+            if not line:
+                continue
+            parts = line.split('\t')
+            if not parts:
+                continue
+            value = parts[0].strip()
+            if value in ("", "-"):
+                continue
+            try:
+                total += float(value)
+            except ValueError:
+                continue
+        return total
+
+    def get_single_account_spent_filtered(self, token, login, date_range="LAST_3_DAYS",
+                                          ad_network_type=None, location_ids=None):
+        """
+        Returns spent amount for a single account with optional filters:
+        - ad_network_type: "SEARCH" or "AD_NETWORK"
+        - location_ids: list of LocationOfPresenceId
+        """
+        filters = []
+        if ad_network_type:
+            filters.append({
+                "Field": "AdNetworkType",
+                "Operator": "EQUALS",
+                "Values": [ad_network_type]
+            })
+        if location_ids:
+            filters.append({
+                "Field": "LocationOfPresenceId",
+                "Operator": "EQUALS",
+                "Values": [str(x) for x in location_ids]
+            })
+
+        body = {
+            "params": {
+                "SelectionCriteria": {},
+                "FieldNames": ["Cost"],
+                "ReportName": "FILTERED_SPEND",
+                "ReportType": "CUSTOM_REPORT",
+                "DateRangeType": date_range,
+                "Format": "TSV",
+                "IncludeVAT": "YES",
+                "IncludeDiscount": "NO"
+            }
+        }
+        if filters:
+            body["params"]["Filter"] = filters
+
+        tsv_text = self._request_report_tsv(token, login, body)
+        return {
+            'login': login,
+            'cost': self._sum_cost_from_tsv(tsv_text)
+        }
+
+    def get_multiple_accounts_spent_filtered(self, accounts_dict, date_range="LAST_3_DAYS",
+                                             ad_network_type=None, location_ids=None):
+        """
+        Returns spent amounts for multiple accounts with optional filters.
+        """
+        results = []
+
+        for login, token in accounts_dict.items():
+            print(f"Запрашиваю траты (filtered) для {login}...")
+            spent = self.get_single_account_spent_filtered(
+                token=token,
+                login=login,
+                date_range=date_range,
+                ad_network_type=ad_network_type,
+                location_ids=location_ids
+            )
+
+            if spent:
+                results.append(spent)
+
+            sleep(0.5)
+
+        return results
+
+    def get_accounts_reconcile_with_commission(self, accounts_dict, date_range="LAST_MONTH",
+                                               outside_rf_location_ids=None,
+                                               commission_rate=0.03, commission_base=0.97):
+        """
+        Returns reconciliation data per account:
+        - total_spend: all spend with VAT
+        - search_spend: spend in search (AdNetworkType=SEARCH)
+        - rsy_outside_rf_spend: spend in RSYA outside РФ (AdNetworkType=AD_NETWORK + location filter)
+        - excluded_sum: search_spend + rsy_outside_rf_spend
+        - commission_base_sum: total_spend - excluded_sum
+        - commission_sum: commission_base_sum * (1 + commission_rate/commission_base)
+        """
+        if outside_rf_location_ids is None:
+            outside_rf_location_ids = [166, 111, 183, 241, 10002, 10003, 138]
+
+        results = []
+        multiplier = 1 + (commission_rate / commission_base)
+
+        for login, token in accounts_dict.items():
+            print(f"Сверка с комиссией для {login}...")
+
+            total_spend = self.get_single_account_spent(
+                token=token,
+                login=login,
+                date_range=date_range
+            )
+            total_cost = total_spend['cost'] if total_spend else 0.0
+
+            search_spend = self.get_single_account_spent_filtered(
+                token=token,
+                login=login,
+                date_range=date_range,
+                ad_network_type="SEARCH"
+            )
+            search_cost = search_spend['cost'] if search_spend else 0.0
+
+            rsy_outside_spend = self.get_single_account_spent_filtered(
+                token=token,
+                login=login,
+                date_range=date_range,
+                ad_network_type="AD_NETWORK",
+                location_ids=outside_rf_location_ids
+            )
+            rsy_outside_cost = rsy_outside_spend['cost'] if rsy_outside_spend else 0.0
+
+            excluded_sum = search_cost + rsy_outside_cost
+            commission_base_sum = total_cost - excluded_sum
+            commission_sum = commission_base_sum * multiplier
+
+            results.append({
+                "login": login,
+                "total_spend": total_cost,
+                "search_spend": search_cost,
+                "rsy_outside_rf_spend": rsy_outside_cost,
+                "excluded_sum": excluded_sum,
+                "commission_base_sum": commission_base_sum,
+                "commission_sum": commission_sum
+            })
+
+            sleep(0.5)
+
+        return results
+
 
 
     def get_account_spent(self, logins, date_range="LAST_3_DAYS"):
