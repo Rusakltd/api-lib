@@ -559,7 +559,7 @@ class YandexDirect:
 
     def _sum_cost_from_tsv(self, tsv_text):
         """
-        Sums the Cost column from a TSV report body.
+        Sums the Cost column from a TSV report body (first column).
         """
         if not tsv_text:
             return 0.0
@@ -579,6 +579,60 @@ class YandexDirect:
             except ValueError:
                 continue
         return total
+
+    def _parse_adnetwork_costs_from_tsv(self, tsv_text):
+        """
+        Parses TSV with columns: AdNetworkType, Cost.
+        Returns dict with summed costs per AdNetworkType.
+        """
+        costs = {}
+        if not tsv_text:
+            return costs
+
+        for line in tsv_text.strip().splitlines():
+            if not line:
+                continue
+            parts = line.split('\t')
+            if len(parts) < 2:
+                continue
+            ad_network_type = parts[0].strip()
+            value = parts[1].strip()
+            if value in ("", "-"):
+                continue
+            try:
+                costs[ad_network_type] = costs.get(ad_network_type, 0.0) + float(value)
+            except ValueError:
+                continue
+        return costs
+
+    def get_single_account_spent_by_adnetwork(self, token, login, date_range="LAST_3_DAYS",
+                                              report_suffix=None):
+        """
+        Returns spend grouped by AdNetworkType for a single account.
+        """
+        report_name = "ADNETWORK_SPEND"
+        if report_suffix:
+            report_name = f"{report_name}_{report_suffix}"
+
+        body = {
+            "params": {
+                "SelectionCriteria": {},
+                "FieldNames": ["AdNetworkType", "Cost"],
+                "ReportName": report_name,
+                "ReportType": "CUSTOM_REPORT",
+                "DateRangeType": date_range,
+                "Format": "TSV",
+                "IncludeVAT": "YES",
+                "IncludeDiscount": "NO"
+            }
+        }
+
+        tsv_text = self._request_report_tsv(token, login, body)
+        costs = self._parse_adnetwork_costs_from_tsv(tsv_text)
+        return {
+            'login': login,
+            'costs': costs
+        }
 
     def get_single_account_spent_filtered(self, token, login, date_range="LAST_3_DAYS",
                                           ad_network_type=None, location_ids=None, report_suffix=None):
@@ -678,32 +732,19 @@ class YandexDirect:
         for login, token in accounts_dict.items():
             print(f"Сверка с комиссией для {login}...")
 
-            total_spend = self.get_single_account_spent(
-                token=token,
-                login=login,
-                date_range=date_range
-            )
-            total_cost = total_spend['cost'] if total_spend else 0.0
-
-            search_spend = self.get_single_account_spent_filtered(
+            adnetwork_spend = self.get_single_account_spent_by_adnetwork(
                 token=token,
                 login=login,
                 date_range=date_range,
-                ad_network_type="SEARCH",
-                report_suffix=f"{login}_SEARCH"
+                report_suffix=f"{login}_ADNET_GROUP"
             )
-            search_cost = search_spend['cost'] if search_spend else 0.0
+            adnetwork_costs = adnetwork_spend['costs'] if adnetwork_spend else {}
+            search_cost = adnetwork_costs.get("SEARCH", 0.0)
+            rsy_total_cost = adnetwork_costs.get("AD_NETWORK", 0.0)
+            total_cost = search_cost + rsy_total_cost
 
+            rsy_russia_cost = 0.0
             if use_russia_subtract:
-                rsy_total = self.get_single_account_spent_filtered(
-                    token=token,
-                    login=login,
-                    date_range=date_range,
-                    ad_network_type="AD_NETWORK",
-                    report_suffix=f"{login}_ADNET_ALL"
-                )
-                rsy_total_cost = rsy_total['cost'] if rsy_total else 0.0
-
                 rsy_russia = self.get_single_account_spent_filtered(
                     token=token,
                     login=login,
@@ -727,6 +768,9 @@ class YandexDirect:
                     report_suffix=f"{login}_ADNET_OUT"
                 )
                 rsy_outside_cost = rsy_outside_spend['cost'] if rsy_outside_spend else 0.0
+                rsy_russia_cost = rsy_total_cost - rsy_outside_cost
+                if rsy_russia_cost < 0:
+                    rsy_russia_cost = 0.0
 
             excluded_sum = search_cost + rsy_outside_cost
             commission_base_sum = total_cost - excluded_sum
@@ -736,6 +780,8 @@ class YandexDirect:
                 "login": login,
                 "total_spend": total_cost,
                 "search_spend": search_cost,
+                "rsy_total_spend": rsy_total_cost,
+                "rsy_russia_spend": rsy_russia_cost,
                 "rsy_outside_rf_spend": rsy_outside_cost,
                 "excluded_sum": excluded_sum,
                 "commission_base_sum": commission_base_sum,
