@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="api_lib",
-    version="0.15.41",
+    version="0.15.42",
     packages=find_packages(),  # <- добавлена запятая
     install_requires=[
         "requests",  # <- в кавычках

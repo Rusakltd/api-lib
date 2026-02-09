@@ -657,12 +657,14 @@ class YandexDirect:
 
     def get_accounts_reconcile_with_commission(self, accounts_dict, date_range="LAST_MONTH",
                                                outside_rf_location_ids=None,
+                                               russia_location_id=225,
+                                               use_russia_subtract=True,
                                                commission_rate=0.03, commission_base=0.97):
         """
         Returns reconciliation data per account:
         - total_spend: all spend with VAT
         - search_spend: spend in search (AdNetworkType=SEARCH)
-        - rsy_outside_rf_spend: spend in RSYA outside РФ (AdNetworkType=AD_NETWORK + location filter)
+        - rsy_outside_rf_spend: spend in RSYA outside РФ
         - excluded_sum: search_spend + rsy_outside_rf_spend
         - commission_base_sum: total_spend - excluded_sum
         - commission_sum: commission_base_sum * (1 + commission_rate/commission_base)
@@ -692,15 +694,39 @@ class YandexDirect:
             )
             search_cost = search_spend['cost'] if search_spend else 0.0
 
-            rsy_outside_spend = self.get_single_account_spent_filtered(
-                token=token,
-                login=login,
-                date_range=date_range,
-                ad_network_type="AD_NETWORK",
-                location_ids=outside_rf_location_ids,
-                report_suffix=f"{login}_ADNET_OUT"
-            )
-            rsy_outside_cost = rsy_outside_spend['cost'] if rsy_outside_spend else 0.0
+            if use_russia_subtract:
+                rsy_total = self.get_single_account_spent_filtered(
+                    token=token,
+                    login=login,
+                    date_range=date_range,
+                    ad_network_type="AD_NETWORK",
+                    report_suffix=f"{login}_ADNET_ALL"
+                )
+                rsy_total_cost = rsy_total['cost'] if rsy_total else 0.0
+
+                rsy_russia = self.get_single_account_spent_filtered(
+                    token=token,
+                    login=login,
+                    date_range=date_range,
+                    ad_network_type="AD_NETWORK",
+                    location_ids=[russia_location_id],
+                    report_suffix=f"{login}_ADNET_RU"
+                )
+                rsy_russia_cost = rsy_russia['cost'] if rsy_russia else 0.0
+
+                rsy_outside_cost = rsy_total_cost - rsy_russia_cost
+                if rsy_outside_cost < 0:
+                    rsy_outside_cost = 0.0
+            else:
+                rsy_outside_spend = self.get_single_account_spent_filtered(
+                    token=token,
+                    login=login,
+                    date_range=date_range,
+                    ad_network_type="AD_NETWORK",
+                    location_ids=outside_rf_location_ids,
+                    report_suffix=f"{login}_ADNET_OUT"
+                )
+                rsy_outside_cost = rsy_outside_spend['cost'] if rsy_outside_spend else 0.0
 
             excluded_sum = search_cost + rsy_outside_cost
             commission_base_sum = total_cost - excluded_sum
