@@ -588,9 +588,12 @@ class YandexDirect:
                 "Values": [ad_network_type]
             })
         if location_ids:
+            operator = "EQUALS"
+            if len(location_ids) > 1:
+                operator = "IN"
             filters.append({
                 "Field": "LocationOfPresenceId",
-                "Operator": "EQUALS",
+                "Operator": operator,
                 "Values": [str(x) for x in location_ids]
             })
 
