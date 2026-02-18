@@ -200,27 +200,15 @@ class YandexMessengerBot:
         import os
 
         headers = {"Authorization": f"OAuth {self.token}"}
-        url = self.base_url + "sendFile/"
+        url = self.base_url + "sendImage/"
 
         if "/" in str(self.chat_id):
             data = {"chat_id": self.chat_id}
         else:
             data = {"login": self.chat_id}
 
-        mime_type, _ = mimetypes.guess_type(filename)
-        if not mime_type or not mime_type.startswith("image/"):
-            ext = os.path.splitext(filename)[1].lower()
-            if ext in (".jpg", ".jpeg"):
-                mime_type = "image/jpeg"
-            elif ext == ".png":
-                mime_type = "image/png"
-            elif ext == ".webp":
-                mime_type = "image/webp"
-            else:
-                mime_type = "application/octet-stream"
-
         files = {
-            "document": (filename, image_data, mime_type)
+            "document": (filename, image_data)
         }
 
         response = requests.post(url, headers=headers, data=data, files=files)
