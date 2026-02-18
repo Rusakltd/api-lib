@@ -188,7 +188,43 @@ class YandexMessengerBot:
         response = requests.get(url, headers=self.headers, params=params)
         return response.json()
     
+    def send_image(self, image_data, filename="digest.jpg"):
+        """
+        Отправить изображение в Yandex Messenger как image/*, а не как text/csv.
 
+        Parameters:
+            image_data (bytes): байты изображения
+            filename (str): имя файла (например, digest.jpg или digest.png)
+        """
+        import mimetypes
+        import os
+
+        headers = {"Authorization": f"OAuth {self.token}"}
+        url = self.base_url + "sendFile/"
+
+        if "/" in str(self.chat_id):
+            data = {"chat_id": self.chat_id}
+        else:
+            data = {"login": self.chat_id}
+
+        mime_type, _ = mimetypes.guess_type(filename)
+        if not mime_type or not mime_type.startswith("image/"):
+            ext = os.path.splitext(filename)[1].lower()
+            if ext in (".jpg", ".jpeg"):
+                mime_type = "image/jpeg"
+            elif ext == ".png":
+                mime_type = "image/png"
+            elif ext == ".webp":
+                mime_type = "image/webp"
+            else:
+                mime_type = "application/octet-stream"
+
+        files = {
+            "document": (filename, image_data, mime_type)
+        }
+
+        response = requests.post(url, headers=headers, data=data, files=files)
+        return response.json()
 
 ## Yandex Direct
 class YandexDirect:
