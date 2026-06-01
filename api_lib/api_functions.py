@@ -248,6 +248,7 @@ class YandexDirect:
             "param": {
                 "Action": "Get",
                 "SelectionCriteria": {
+                    "Logins": [login]
                 }
             }
         }
@@ -268,23 +269,36 @@ class YandexDirect:
                 
                 # Проверяем разные варианты структуры ответа
                 if 'data' in data and 'Accounts' in data['data']:
-                    account = data['data']['Accounts'][0]
-                    return {
-                        'login': account['Login'],
-                        'amount': round(float(account['Amount']), 2),
-                        'currency': account.get('Currency', 'RUB')
-                    }
+                    accounts = data['data']['Accounts']
+                    actions_result = data['data'].get('ActionsResult', [])
                 elif 'Accounts' in data:
-                    account = data['Accounts'][0]
-                    return {
-                        'login': account['Login'],
-                        'amount': round(float(account['Amount']), 2),
-                        'currency': account.get('Currency', 'RUB')
-                    }
+                    accounts = data['Accounts']
+                    actions_result = data.get('ActionsResult', [])
                 else:
                     print(f"Неожиданная структура ответа для {login}")
                     print(f"Ключи в ответе: {data.keys()}")
                     return None
+
+                account = next(
+                    (account for account in accounts if account.get('Login') == login),
+                    None
+                )
+
+                if not account:
+                    print(f"Баланс для {login} не найден в ответе API")
+                    if accounts:
+                        returned_logins = [account.get('Login') for account in accounts]
+                        print(f"API вернул логины: {returned_logins}")
+                    if actions_result:
+                        print(f"ActionsResult для {login}:")
+                        print(json.dumps(actions_result, indent=2, ensure_ascii=False))
+                    return None
+
+                return {
+                    'login': account['Login'],
+                    'amount': round(float(account['Amount']), 2),
+                    'currency': account.get('Currency', 'RUB')
+                }
             elif response.status_code == 400:
                 print(f"Параметры запроса для {login} указаны неверно")
                 print(response.text)
