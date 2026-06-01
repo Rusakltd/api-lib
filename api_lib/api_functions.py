@@ -248,12 +248,44 @@ class YandexDirect:
             "param": {
                 "Action": "Get",
                 "SelectionCriteria": {
-                    "Logins": [login]
                 }
             }
         }
         
         try:
+            def parse_balance_response(data, requested_login):
+                if 'data' in data and 'Accounts' in data['data']:
+                    accounts = data['data']['Accounts']
+                    actions_result = data['data'].get('ActionsResult', [])
+                elif 'Accounts' in data:
+                    accounts = data['Accounts']
+                    actions_result = data.get('ActionsResult', [])
+                else:
+                    print(f"Неожиданная структура ответа для {requested_login}")
+                    print(f"Ключи в ответе: {data.keys()}")
+                    return None
+
+                account = next(
+                    (account for account in accounts if account.get('Login') == requested_login),
+                    None
+                )
+
+                if not account:
+                    print(f"Баланс для {requested_login} не найден в ответе API")
+                    if accounts:
+                        returned_logins = [account.get('Login') for account in accounts]
+                        print(f"API вернул логины: {returned_logins}")
+                    if actions_result:
+                        print(f"ActionsResult для {requested_login}:")
+                        print(json.dumps(actions_result, indent=2, ensure_ascii=False))
+                    return None
+
+                return {
+                    'login': account['Login'],
+                    'amount': round(float(account['Amount']), 2),
+                    'currency': account.get('Currency', 'RUB')
+                }
+
             response = requests.post(self.url_accounts, json=body)
             response.encoding = 'utf-8'
             
@@ -267,38 +299,35 @@ class YandexDirect:
                 print(f"Структура ответа для {login}:")
                 print(json.dumps(data, indent=2, ensure_ascii=False))
                 
-                # Проверяем разные варианты структуры ответа
-                if 'data' in data and 'Accounts' in data['data']:
-                    accounts = data['data']['Accounts']
-                    actions_result = data['data'].get('ActionsResult', [])
-                elif 'Accounts' in data:
-                    accounts = data['Accounts']
-                    actions_result = data.get('ActionsResult', [])
-                else:
-                    print(f"Неожиданная структура ответа для {login}")
-                    print(f"Ключи в ответе: {data.keys()}")
-                    return None
+                balance = parse_balance_response(data, login)
+                if balance:
+                    return balance
 
-                account = next(
-                    (account for account in accounts if account.get('Login') == login),
-                    None
-                )
-
-                if not account:
-                    print(f"Баланс для {login} не найден в ответе API")
-                    if accounts:
-                        returned_logins = [account.get('Login') for account in accounts]
-                        print(f"API вернул логины: {returned_logins}")
-                    if actions_result:
-                        print(f"ActionsResult для {login}:")
-                        print(json.dumps(actions_result, indent=2, ensure_ascii=False))
-                    return None
-
-                return {
-                    'login': account['Login'],
-                    'amount': round(float(account['Amount']), 2),
-                    'currency': account.get('Currency', 'RUB')
+                print(f"Повторяю запрос баланса для {login} с явным SelectionCriteria.Logins...")
+                body_with_login = {
+                    "method": "AccountManagement",
+                    "token": token,
+                    "locale": "ru",
+                    "param": {
+                        "Action": "Get",
+                        "SelectionCriteria": {
+                            "Logins": [login]
+                        }
+                    }
                 }
+                response_with_login = requests.post(self.url_accounts, json=body_with_login)
+                response_with_login.encoding = 'utf-8'
+                print(f"Статус уточняющего ответа для {login}: {response_with_login.status_code}")
+
+                if response_with_login.status_code == 200:
+                    data_with_login = response_with_login.json()
+                    print(f"Структура уточняющего ответа для {login}:")
+                    print(json.dumps(data_with_login, indent=2, ensure_ascii=False))
+                    return parse_balance_response(data_with_login, login)
+
+                print(f"Ошибка уточняющего запроса для {login}: статус {response_with_login.status_code}")
+                print(response_with_login.text)
+                return None
             elif response.status_code == 400:
                 print(f"Параметры запроса для {login} указаны неверно")
                 print(response.text)
